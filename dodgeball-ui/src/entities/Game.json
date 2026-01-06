@@ -1,0 +1,62 @@
+{
+  "name": "Game",
+  "type": "object",
+  "properties": {
+    "winning_team": {
+      "type": "string",
+      "enum": [
+        "winners_court",
+        "challenger"
+      ],
+      "description": "Which team won"
+    },
+    "losing_team": {
+      "type": "string",
+      "enum": [
+        "winners_court",
+        "challenger"
+      ],
+      "description": "Which team lost"
+    },
+    "winners_court_players": {
+      "type": "array",
+      "description": "Names of Winner's Court players",
+      "items": {
+        "type": "string"
+      }
+    },
+    "challenger_players": {
+      "type": "array",
+      "description": "Names of Challenger players",
+      "items": {
+        "type": "string"
+      }
+    },
+    "eliminated_players": {
+      "type": "array",
+      "description": "Players who were eliminated (in order)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "player_id": {
+            "type": "string"
+          },
+          "player_name": {
+            "type": "string"
+          },
+          "elimination_order": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "winners_court_streak": {
+      "type": "number",
+      "description": "Winner's Court streak after this game"
+    }
+  },
+  "required": [
+    "winning_team",
+    "losing_team"
+  ]
+}

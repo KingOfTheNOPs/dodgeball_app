@@ -1,0 +1,32 @@
+{
+  "name": "Player",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Player name"
+    },
+    "avatar_color": {
+      "type": "string",
+      "description": "Color for avatar"
+    },
+    "queue_position": {
+      "type": "number",
+      "description": "Position in the queue (0-5 = Winner's Court, 6-11 = Challenger, 12+ = Queue)"
+    },
+    "team": {
+      "type": "string",
+      "enum": [
+        "winners_court",
+        "challenger",
+        "queue"
+      ],
+      "description": "Which team the player is on"
+    }
+  },
+  "required": [
+    "name",
+    "queue_position",
+    "team"
+  ]
+}
