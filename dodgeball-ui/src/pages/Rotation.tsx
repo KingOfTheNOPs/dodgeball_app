@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/apiClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from "@/components/ui/button";
 import { Plus, Gamepad2, Trash2, Shuffle } from 'lucide-react';
@@ -15,7 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
+import SyncStatus from '@/components/system/SyncStatus';
 import TeamCard from '@/components/court/TeamCard';
 import GameControls from '@/components/court/GameControls';
 import EliminationTracker from '@/components/court/EliminationTracker';
@@ -23,41 +23,47 @@ import QueuePanel from '@/components/court/QueuePanel';
 import AddPlayerModal from '@/components/queue/AddPlayerModal';
 import CountdownTimer from '@/components/court/CountdownTimer';
 import StreakRecord from '@/components/court/StreakRecord';
+import { usePersistentState } from '@/hooks/usePersistentState';
 
 export default function Rotation() {
+  // ✅ MUST be inside the component (this was the main thing that broke your app)
+  const [processingStatus, setProcessingStatus] = useState<string | null>(null);
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [playerToDelete, setPlayerToDelete] = useState<any>(null);
   const [trackingElimination, setTrackingElimination] = useState<any>(null);
-  const [winnersCourtStreak, setWinnersCourtStreak] = useState(0);
+
+  // ✅ Persist these across refresh
+  const [winnersCourtStreak, setWinnersCourtStreak] = usePersistentState<number>('db.streak.current', 0);
+  const [longestStreak, setLongestStreak] = usePersistentState<number>('db.streak.longest', 0);
+  const [longestStreakPlayers, setLongestStreakPlayers] = usePersistentState<string[]>('db.streak.longestPlayers', []);
+
   const [showResetDialog, setShowResetDialog] = useState(false);
-  const [longestStreak, setLongestStreak] = useState(0);
-  const [longestStreakPlayers, setLongestStreakPlayers] = useState<string[]>([]);
   const queryClient = useQueryClient();
 
   const { data: players = [] } = useQuery({
     queryKey: ['players'],
     queryFn: async () => {
-      return await base44.entities.Player.list('queue_position');
+      return await api.entities.Player.list('queue_position');
     },
   });
 
   const { data: games = [] } = useQuery({
     queryKey: ['games'],
-    queryFn: () => base44.entities.Game.list('-created_date', 30),
+    queryFn: () => api.entities.Game.list('-created_date', 30),
   });
 
   const createPlayerMutation = useMutation({
     mutationFn: async (data: any) => {
       const { team, name, avatar_color } = data;
 
-      // Get players in the selected team to find the right position
       const teamPlayers = players.filter((p: any) => p.team === team);
       const queuePosition =
         teamPlayers.length > 0
           ? Math.max(...teamPlayers.map((p: any) => p.queue_position)) + 1
           : (team === 'winners_court' ? 0 : team === 'challenger' ? 6 : 12);
 
-      return await base44.entities.Player.create({
+      return await api.entities.Player.create({
         name,
         avatar_color,
         queue_position: queuePosition,
@@ -71,14 +77,14 @@ export default function Rotation() {
   });
 
   const updatePlayerMutation = useMutation({
-    mutationFn: ({ id, data }: any) => base44.entities.Player.update(id, data),
+    mutationFn: ({ id, data }: any) => api.entities.Player.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['players'] });
     },
   });
 
   const createGameMutation = useMutation({
-    mutationFn: (data: any) => base44.entities.Game.create(data),
+    mutationFn: (data: any) => api.entities.Game.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['games'] });
     },
@@ -86,7 +92,7 @@ export default function Rotation() {
 
   const deletePlayerMutation = useMutation({
     mutationFn: async (id: any) => {
-      await base44.entities.Player.delete(id);
+      await api.entities.Player.delete(id);
       const remaining = players.filter((p: any) => p.id !== id);
 
       await Promise.all(
@@ -95,7 +101,7 @@ export default function Rotation() {
           if (index < 6) team = 'winners_court';
           else if (index < 12) team = 'challenger';
 
-          return base44.entities.Player.update(player.id, {
+          return api.entities.Player.update(player.id, {
             queue_position: index,
             team
           });
@@ -111,10 +117,8 @@ export default function Rotation() {
 
   const resetAllMutation = useMutation({
     mutationFn: async () => {
-      // Delete all players
-      await Promise.all(players.map((p: any) => base44.entities.Player.delete(p.id)));
-      // Optionally delete all games
-      await Promise.all(games.map((g: any) => base44.entities.Game.delete(g.id)));
+      await Promise.all(players.map((p: any) => api.entities.Player.delete(p.id)));
+      await Promise.all(games.map((g: any) => api.entities.Game.delete(g.id)));
     },
     onSuccess: () => {
       setWinnersCourtStreak(0);
@@ -127,24 +131,19 @@ export default function Rotation() {
     },
   });
 
-  // Derived team lists (used in randomizer + UI)
   const winnersCourtPlayers = players.filter((p: any) => p.team === 'winners_court');
   const challengerPlayers = players.filter((p: any) => p.team === 'challenger');
   const queuePlayers = players.filter((p: any) => p.team === 'queue');
 
   const randomizeTeamsMutation = useMutation({
     mutationFn: async () => {
-      // Only randomize the active 12 (winners + challenger)
       const activePlayers = [...winnersCourtPlayers, ...challengerPlayers];
-
-      // Shuffle
       const shuffled = [...activePlayers].sort(() => Math.random() - 0.5);
 
-      // Assign first 6 to Winner's Court, next 6 to Challenger
       await Promise.all(
         shuffled.map((player: any, index: number) => {
           const team = index < 6 ? 'winners_court' : 'challenger';
-          return base44.entities.Player.update(player.id, {
+          return api.entities.Player.update(player.id, {
             queue_position: index,
             team
           });
@@ -157,11 +156,6 @@ export default function Rotation() {
     },
   });
 
-  // Randomize button gating:
-  // Visible always (when players exist), but "disabled-looking" until:
-  // - winners court has 6
-  // - challenger has 6
-  // - queue is empty (0)
   const hasFullCourts = winnersCourtPlayers.length === 6 && challengerPlayers.length === 6;
   const isQueueEmpty = queuePlayers.length === 0;
   const canRandomizeTeams = hasFullCourts && isQueueEmpty && !randomizeTeamsMutation.isPending;
@@ -201,119 +195,151 @@ export default function Rotation() {
     setTrackingElimination({ losingTeam: 'winners_court', players: winners });
   };
 
+  // ✅ Dynamic overlay + minimum 3 seconds
   const handleEliminationComplete = async (eliminatedOrder: any[]) => {
-    const { losingTeam } = trackingElimination;
-    const winningTeam = losingTeam === 'challenger' ? 'winners_court' : 'challenger';
+    const startedAt = Date.now();
+    const MIN_OVERLAY_MS = 3000;
 
-    const winnersNames = players.filter((p: any) => p.team === 'winners_court').map((p: any) => p.name);
-    const challengerNames = players.filter((p: any) => p.team === 'challenger').map((p: any) => p.name);
+    const ensureMinOverlayTime = async () => {
+      const elapsed = Date.now() - startedAt;
+      const remaining = MIN_OVERLAY_MS - elapsed;
+      if (remaining > 0) {
+        await new Promise((r) => setTimeout(r, remaining));
+      }
+    };
 
-    // Update streak
-    let newStreak = winnersCourtStreak;
-    if (winningTeam === 'winners_court') {
-      newStreak += 1;
-    } else {
-      newStreak = 1;
+    try {
+      setProcessingStatus("Recording elimination order…");
+
+      const { losingTeam } = trackingElimination;
+      const winningTeam = losingTeam === 'challenger' ? 'winners_court' : 'challenger';
+
+      const winnersNames = players
+        .filter((p: any) => p.team === 'winners_court')
+        .map((p: any) => p.name);
+
+      const challengerNames = players
+        .filter((p: any) => p.team === 'challenger')
+        .map((p: any) => p.name);
+
+      setProcessingStatus("Updating streak…");
+
+      let newStreak = winnersCourtStreak;
+      if (winningTeam === 'winners_court') newStreak += 1;
+      else newStreak = 1;
+
+      setWinnersCourtStreak(newStreak);
+
+      if (newStreak > longestStreak) {
+        setLongestStreak(newStreak);
+        setLongestStreakPlayers(winnersNames);
+        toast.success(`🏆 New record streak: ${newStreak} wins!`, { duration: 4000 });
+      }
+
+      setProcessingStatus("Saving game record…");
+
+      await createGameMutation.mutateAsync({
+        winning_team: winningTeam,
+        losing_team: losingTeam,
+        winners_court_players: winnersNames,
+        challenger_players: challengerNames,
+        eliminated_players: eliminatedOrder.map((player: any, idx: number) => ({
+          player_id: player.id,
+          player_name: player.name,
+          elimination_order: idx + 1
+        })),
+        winners_court_streak: newStreak
+      });
+
+      setProcessingStatus("Rebuilding courts & queue…");
+
+      if (losingTeam === 'challenger') {
+        const winnersCourt = players.filter((p: any) => p.team === 'winners_court');
+        const queue = players.filter((p: any) => p.team === 'queue');
+
+        const newQueuePool = [...queue, ...eliminatedOrder];
+        const newChallenger = newQueuePool.slice(0, 6);
+        const remainingQueue = newQueuePool.slice(6);
+
+        let position = 0;
+
+        for (const player of winnersCourt) {
+          await api.entities.Player.update(player.id, {
+            queue_position: position++,
+            team: 'winners_court'
+          });
+        }
+
+        setProcessingStatus("Assigning next challenger…");
+
+        for (const player of newChallenger) {
+          await api.entities.Player.update(player.id, {
+            queue_position: position++,
+            team: 'challenger'
+          });
+        }
+
+        setProcessingStatus("Updating remaining queue…");
+
+        for (const player of remainingQueue) {
+          await api.entities.Player.update(player.id, {
+            queue_position: position++,
+            team: 'queue'
+          });
+        }
+
+        toast.success(`Winner's Court defends! ${newStreak} win streak!`);
+      } else {
+        const newWinnersCourt = players.filter((p: any) => p.team === 'challenger');
+        const queue = players.filter((p: any) => p.team === 'queue');
+
+        const newQueuePool = [...queue, ...eliminatedOrder];
+        const newChallenger = newQueuePool.slice(0, 6);
+        const remainingQueue = newQueuePool.slice(6);
+
+        let position = 0;
+
+        setProcessingStatus("Promoting challenger to Winner’s Court…");
+
+        for (const player of newWinnersCourt) {
+          await api.entities.Player.update(player.id, {
+            queue_position: position++,
+            team: 'winners_court'
+          });
+        }
+
+        setProcessingStatus("Assigning next challenger…");
+
+        for (const player of newChallenger) {
+          await api.entities.Player.update(player.id, {
+            queue_position: position++,
+            team: 'challenger'
+          });
+        }
+
+        setProcessingStatus("Updating remaining queue…");
+
+        for (const player of remainingQueue) {
+          await api.entities.Player.update(player.id, {
+            queue_position: position++,
+            team: 'queue'
+          });
+        }
+
+        toast.success('Challenger takes the court!');
+      }
+
+      setProcessingStatus("Refreshing view…");
+
+      queryClient.invalidateQueries({ queryKey: ['players'] });
+
+      // ✅ ensure overlay shows >= 3s total
+      await ensureMinOverlayTime();
+
+      setTrackingElimination(null);
+    } finally {
+      setProcessingStatus(null);
     }
-    setWinnersCourtStreak(newStreak);
-
-    // Check record
-    if (newStreak > longestStreak) {
-      setLongestStreak(newStreak);
-      setLongestStreakPlayers(winnersNames);
-      toast.success(`🏆 New record streak: ${newStreak} wins!`, { duration: 4000 });
-    }
-
-    // Create game record
-    await createGameMutation.mutateAsync({
-      winning_team: winningTeam,
-      losing_team: losingTeam,
-      winners_court_players: winnersNames,
-      challenger_players: challengerNames,
-      eliminated_players: eliminatedOrder.map((player: any, idx: number) => ({
-        player_id: player.id,
-        player_name: player.name,
-        elimination_order: idx + 1
-      })),
-      winners_court_streak: newStreak
-    });
-
-    // Reposition players - losing team to queue FIRST, then form new challenger
-    if (losingTeam === 'challenger') {
-      const winnersCourt = players.filter((p: any) => p.team === 'winners_court');
-      const queue = players.filter((p: any) => p.team === 'queue');
-
-      const newQueuePool = [...queue, ...eliminatedOrder];
-      const newChallenger = newQueuePool.slice(0, 6);
-      const remainingQueue = newQueuePool.slice(6);
-
-      let position = 0;
-
-      // Winners court stays (0-5)
-      for (const player of winnersCourt) {
-        await base44.entities.Player.update(player.id, {
-          queue_position: position++,
-          team: 'winners_court'
-        });
-      }
-
-      // New challenger (6-11)
-      for (const player of newChallenger) {
-        await base44.entities.Player.update(player.id, {
-          queue_position: position++,
-          team: 'challenger'
-        });
-      }
-
-      // Remaining queue
-      for (const player of remainingQueue) {
-        await base44.entities.Player.update(player.id, {
-          queue_position: position++,
-          team: 'queue'
-        });
-      }
-
-      toast.success(`Winner's Court defends! ${newStreak} win streak!`);
-    } else {
-      // Winners court lost
-      const newWinnersCourt = players.filter((p: any) => p.team === 'challenger');
-      const queue = players.filter((p: any) => p.team === 'queue');
-
-      const newQueuePool = [...queue, ...eliminatedOrder];
-      const newChallenger = newQueuePool.slice(0, 6);
-      const remainingQueue = newQueuePool.slice(6);
-
-      let position = 0;
-
-      // Challenger becomes winners court (0-5)
-      for (const player of newWinnersCourt) {
-        await base44.entities.Player.update(player.id, {
-          queue_position: position++,
-          team: 'winners_court'
-        });
-      }
-
-      // New challenger (6-11)
-      for (const player of newChallenger) {
-        await base44.entities.Player.update(player.id, {
-          queue_position: position++,
-          team: 'challenger'
-        });
-      }
-
-      // Remaining queue
-      for (const player of remainingQueue) {
-        await base44.entities.Player.update(player.id, {
-          queue_position: position++,
-          team: 'queue'
-        });
-      }
-
-      toast.success('Challenger takes the court!');
-    }
-
-    queryClient.invalidateQueries({ queryKey: ['players'] });
-    setTrackingElimination(null);
   };
 
   const handleMoveUp = async (player: any) => {
@@ -323,8 +349,8 @@ export default function Rotation() {
 
     const swapPlayer = q[index - 1];
     await Promise.all([
-      base44.entities.Player.update(player.id, { queue_position: swapPlayer.queue_position }),
-      base44.entities.Player.update(swapPlayer.id, { queue_position: player.queue_position })
+      api.entities.Player.update(player.id, { queue_position: swapPlayer.queue_position }),
+      api.entities.Player.update(swapPlayer.id, { queue_position: player.queue_position })
     ]);
 
     queryClient.invalidateQueries({ queryKey: ['players'] });
@@ -337,8 +363,8 @@ export default function Rotation() {
 
     const swapPlayer = q[index + 1];
     await Promise.all([
-      base44.entities.Player.update(player.id, { queue_position: swapPlayer.queue_position }),
-      base44.entities.Player.update(swapPlayer.id, { queue_position: player.queue_position })
+      api.entities.Player.update(player.id, { queue_position: swapPlayer.queue_position }),
+      api.entities.Player.update(swapPlayer.id, { queue_position: player.queue_position })
     ]);
 
     queryClient.invalidateQueries({ queryKey: ['players'] });
@@ -353,6 +379,7 @@ export default function Rotation() {
           className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8"
         >
           <div className="flex items-center gap-3">
+            <SyncStatus />
             <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-600 flex items-center justify-center shadow-lg">
               <Gamepad2 className="h-6 w-6 text-white" />
             </div>
@@ -406,6 +433,7 @@ export default function Rotation() {
                 losingTeamPlayers={trackingElimination.players}
                 onComplete={handleEliminationComplete}
                 onCancel={() => setTrackingElimination(null)}
+                statusText={processingStatus}
               />
             ) : (
               <>
