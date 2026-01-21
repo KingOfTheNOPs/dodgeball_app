@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,8 +15,29 @@ const avatarColors = [
 export default function AddPlayerModal({ open, onClose, onCreate, existingCount, winnersCourtCount, challengerCount }) {
   const [playerName, setPlayerName] = useState('');
   const [selectedColor, setSelectedColor] = useState(avatarColors[existingCount % avatarColors.length]);
-  const [selectedTeam, setSelectedTeam] = useState('queue');
+  const [selectedTeam, setSelectedTeam] = useState('winners_court');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Keep the radio selection "smart" while the modal is open:
+  // - default to Winner's Court
+  // - when Winner's Court fills up, auto-move to Challenger
+  // - if both courts fill up, fall back to Queue
+  useEffect(() => {
+    if (!open) return;
+
+    if (winnersCourtCount >= 6 && challengerCount < 6) {
+      setSelectedTeam('challenger');
+      return;
+    }
+
+    if (winnersCourtCount >= 6 && challengerCount >= 6) {
+      setSelectedTeam('queue');
+      return;
+    }
+
+    // Winner's Court still has room
+    setSelectedTeam('winners_court');
+  }, [open, winnersCourtCount, challengerCount]);
 
   const handleSubmit = async () => {
     if (!playerName.trim()) return;
@@ -30,7 +51,7 @@ export default function AddPlayerModal({ open, onClose, onCreate, existingCount,
     setIsLoading(false);
     setPlayerName('');
     setSelectedColor(avatarColors[(existingCount + 1) % avatarColors.length]);
-    setSelectedTeam('queue');
+    setSelectedTeam('winners_court');
     onClose();
   };
 
