@@ -3,14 +3,28 @@ import { base44 } from '@/api/base44Client';
 import { offlineStore, compactOpLog, getRemoteId, setRemoteId, type OpLogEntry } from './offlineStore';
 
 let syncing = false;
+let syncQueued = false;
 
 function isOnline() {
   // navigator.onLine isn't perfect, but good enough as a trigger
   return typeof navigator !== 'undefined' ? navigator.onLine : false;
 }
 
+async function getLocalPlayer(localId: string) {
+  const players = await offlineStore.entities.Player.list();
+  return players.find(player => player.id === localId) ?? null;
+}
+
+async function getLocalGame(localId: string) {
+  const games = await offlineStore.entities.Game.list();
+  return games.find(game => game.id === localId) ?? null;
+}
+
 async function syncOnce() {
-  if (syncing) return;
+  if (syncing) {
+    syncQueued = true;
+    return;
+  }
   if (!isOnline()) return;
 
   const raw = offlineStore.oplog.get();
@@ -43,6 +57,11 @@ async function syncOnce() {
   } finally {
     syncing = false;
   }
+
+  if (syncQueued) {
+    syncQueued = false;
+    await syncOnce();
+  }
 }
 
 async function syncPlayerOp(op: OpLogEntry) {
@@ -59,6 +78,18 @@ async function syncPlayerOp(op: OpLogEntry) {
   // If we don't have a remote id yet, we can't update/delete remotely.
   // This can happen if create hasn't synced yet — leave op in oplog (handled by syncOnce).
   if (!remoteId) {
+    if (op.op === 'update') {
+      const localPlayer = await getLocalPlayer(localId);
+      if (!localPlayer) return;
+      const created = await base44.entities.Player.create(localPlayer);
+      setRemoteId('Player', localId, created.id);
+      return;
+    }
+
+    if (op.op === 'delete') {
+      return;
+    }
+
     throw new Error(`Missing remote id mapping for Player ${localId}`);
   }
 
@@ -84,6 +115,18 @@ async function syncGameOp(op: OpLogEntry) {
   }
 
   if (!remoteId) {
+    if (op.op === 'update') {
+      const localGame = await getLocalGame(localId);
+      if (!localGame) return;
+      const created = await base44.entities.Game.create(localGame);
+      setRemoteId('Game', localId, created.id);
+      return;
+    }
+
+    if (op.op === 'delete') {
+      return;
+    }
+
     throw new Error(`Missing remote id mapping for Game ${localId}`);
   }
 
@@ -101,14 +144,49 @@ async function syncGameOp(op: OpLogEntry) {
 
 // Try to sync when we come online
 if (typeof window !== 'undefined') {
+  void syncOnce();
   window.addEventListener('online', () => {
     void syncOnce();
   });
 }
 
+const entities = {
+  Player: {
+    list: offlineStore.entities.Player.list,
+    create: async (data: Parameters<typeof offlineStore.entities.Player.create>[0]) => {
+      const created = await offlineStore.entities.Player.create(data);
+      void syncOnce();
+      return created;
+    },
+    update: async (id: string, patch: Parameters<typeof offlineStore.entities.Player.update>[1]) => {
+      const updated = await offlineStore.entities.Player.update(id, patch);
+      void syncOnce();
+      return updated;
+    },
+    delete: async (id: string) => {
+      const result = await offlineStore.entities.Player.delete(id);
+      void syncOnce();
+      return result;
+    },
+  },
+  Game: {
+    list: offlineStore.entities.Game.list,
+    create: async (data: Parameters<typeof offlineStore.entities.Game.create>[0]) => {
+      const created = await offlineStore.entities.Game.create(data);
+      void syncOnce();
+      return created;
+    },
+    delete: async (id: string) => {
+      const result = await offlineStore.entities.Game.delete(id);
+      void syncOnce();
+      return result;
+    },
+  },
+};
+
 // Export an API surface that matches your existing usage pattern
 export const api = {
-  entities: offlineStore.entities,
+  entities,
 
   // Optional: call this manually if you want a "Sync" button later
   syncNow: async () => {

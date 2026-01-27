@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api } from '@/api/apiClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from "@/components/ui/button";
-import { Plus, Gamepad2, Trash2, Shuffle } from 'lucide-react';
+import { Plus, Gamepad2, Trash2, Shuffle, Download } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -21,13 +21,27 @@ import GameControls from '@/components/court/GameControls';
 import EliminationTracker from '@/components/court/EliminationTracker';
 import QueuePanel from '@/components/court/QueuePanel';
 import AddPlayerModal from '@/components/queue/AddPlayerModal';
-import CountdownTimer from '@/components/court/CountdownTimer';
 import StreakRecord from '@/components/court/StreakRecord';
 import { usePersistentState } from '@/hooks/usePersistentState';
 
 export default function Rotation() {
   // ✅ MUST be inside the component (this was the main thing that broke your app)
   const [processingStatus, setProcessingStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const timerKeys = [
+      'db.timer.minutes',
+      'db.timer.seconds',
+      'db.timer.isRunning',
+      'db.timer.isEditing',
+      'db.timer.endAtMs',
+      'db.timer.timeLeft',
+    ];
+
+    timerKeys.forEach((key) => localStorage.removeItem(key));
+  }, []);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [playerToDelete, setPlayerToDelete] = useState<any>(null);
@@ -370,6 +384,44 @@ export default function Rotation() {
     queryClient.invalidateQueries({ queryKey: ['players'] });
   };
 
+  const escapeCsvValue = (value: unknown) => {
+    if (value === null || value === undefined) return '';
+    const str = String(value);
+    if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+    return str;
+  };
+
+  const handleExportCsv = () => {
+    if (typeof document === 'undefined') return;
+
+    const header = ['attendance', 'winners'];
+    const attendance = players.map((player: any) => player.name ?? '');
+    const winners = longestStreakPlayers;
+    const rowCount = Math.max(attendance.length, winners.length);
+
+    const rows = Array.from({ length: rowCount }, (_, index) => [
+      attendance[index] ?? '',
+      winners[index] ?? '',
+    ]);
+
+    const lines = [
+      header.map(escapeCsvValue).join(','),
+      ...rows.map((row) => row.map(escapeCsvValue).join(',')),
+    ];
+
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    link.download = `dodgeball-export-${dateStamp}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -417,6 +469,15 @@ export default function Rotation() {
             )}
 
             <Button
+              onClick={handleExportCsv}
+              variant="outline"
+              className="border-slate-300 text-slate-700 hover:bg-slate-50"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
+            </Button>
+
+            <Button
               onClick={() => setShowAddModal(true)}
               className="bg-slate-800 hover:bg-slate-900 shadow-lg"
             >
@@ -442,10 +503,12 @@ export default function Rotation() {
                     team="winners_court"
                     players={winnersCourtPlayers}
                     streak={winnersCourtStreak}
+                    onDelete={setPlayerToDelete}
                   />
                   <TeamCard
                     team="challenger"
                     players={challengerPlayers}
+                    onDelete={setPlayerToDelete}
                   />
                 </div>
 
@@ -461,7 +524,6 @@ export default function Rotation() {
           </div>
 
           <div className="lg:col-span-1 space-y-6">
-            <CountdownTimer />
             <StreakRecord
               longestStreak={longestStreak}
               longestStreakPlayers={longestStreakPlayers}

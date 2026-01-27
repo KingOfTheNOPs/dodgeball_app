@@ -71,10 +71,10 @@ export default function SyncStatus() {
       <button
         onClick={handleManualSync}
         className={`${baseClass} bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100 transition`}
-        title="Unsynced changes — click to sync"
+        title="Saved locally — click to retry sync"
       >
         <AlertTriangle className="h-3 w-3" />
-        {unsyncedCount} change{unsyncedCount !== 1 ? 's' : ''} pending
+        {unsyncedCount} pending
       </button>
     );
   }

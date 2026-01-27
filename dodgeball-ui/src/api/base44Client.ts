@@ -33,7 +33,9 @@ export const base44 = {
       async create(data: Omit<Player, "id">) {
         const players = load<Player[]>(LS_PLAYERS, []);
         const p: Player = { id: uid(), ...data };
-        players.push(p);
+        const idx = players.findIndex(player => player.id === p.id);
+        if (idx >= 0) players[idx] = p;
+        else players.push(p);
         save(LS_PLAYERS, players);
         return p;
       },
@@ -53,9 +55,12 @@ export const base44 = {
       async list() { return load<Game[]>(LS_GAMES, []); },
       async create(data: Game) {
         const games = load<any[]>(LS_GAMES, []);
-        games.unshift({ id: uid(), created_date: new Date().toISOString(), ...data });
+        const game = { id: uid(), created_date: new Date().toISOString(), ...data };
+        const idx = games.findIndex((g: any) => g.id === game.id);
+        if (idx >= 0) games[idx] = game;
+        else games.unshift(game);
         save(LS_GAMES, games);
-        return games[0];
+        return game;
       },
       async delete(id: Id) {
         const games = load<any[]>(LS_GAMES, []).filter(g => g.id !== id);
