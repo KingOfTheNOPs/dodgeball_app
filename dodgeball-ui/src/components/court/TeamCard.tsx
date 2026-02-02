@@ -7,6 +7,7 @@ import { motion } from 'framer-motion';
 
 export default function TeamCard({ team, players, streak, onDelete }) {
   const isWinnersCourt = team === 'winners_court';
+  const showChallengerDelete = team === 'challenger' && !!onDelete;
   
   return (
     <Card className={`border-0 shadow-xl ${
@@ -56,12 +57,13 @@ export default function TeamCard({ team, players, streak, onDelete }) {
                     <p className="font-semibold text-base">{player.name}</p>
                     <p className="text-xs text-white/60">Position {index + 1}</p>
                   </div>
-                  {onDelete && (
+                  {showChallengerDelete && (
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition"
+                      className="h-8 w-8 text-white/80 hover:text-white hover:bg-white/10 transition"
                       onClick={() => onDelete(player)}
+                      aria-label={`Remove ${player.name}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>

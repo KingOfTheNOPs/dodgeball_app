@@ -105,22 +105,47 @@ export default function Rotation() {
   });
 
   const deletePlayerMutation = useMutation({
-    mutationFn: async (id: any) => {
-      await api.entities.Player.delete(id);
-      const remaining = players.filter((p: any) => p.id !== id);
+    mutationFn: async (player: any) => {
+      if (!player?.id) return;
 
-      await Promise.all(
-        remaining.map((player: any, index: number) => {
-          let team = 'queue';
-          if (index < 6) team = 'winners_court';
-          else if (index < 12) team = 'challenger';
+      await api.entities.Player.delete(player.id);
 
-          return api.entities.Player.update(player.id, {
-            queue_position: index,
-            team
-          });
-        })
-      );
+      const remaining = players.filter((p: any) => p.id !== player.id);
+      const winners = remaining.filter((p: any) => p.team === 'winners_court');
+      const challengers = remaining.filter((p: any) => p.team === 'challenger');
+      let queue = remaining.filter((p: any) => p.team === 'queue');
+
+      if (player.team === 'challenger' && queue.length > 0) {
+        const [nextUp, ...restQueue] = queue;
+        challengers.push(nextUp);
+        queue = restQueue;
+      }
+
+      const updates: Promise<any>[] = [];
+      let position = 0;
+
+      for (const winner of winners) {
+        updates.push(api.entities.Player.update(winner.id, {
+          queue_position: position++,
+          team: 'winners_court'
+        }));
+      }
+
+      for (const challenger of challengers) {
+        updates.push(api.entities.Player.update(challenger.id, {
+          queue_position: position++,
+          team: 'challenger'
+        }));
+      }
+
+      for (const queued of queue) {
+        updates.push(api.entities.Player.update(queued.id, {
+          queue_position: position++,
+          team: 'queue'
+        }));
+      }
+
+      await Promise.all(updates);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['players'] });
@@ -552,13 +577,14 @@ export default function Rotation() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove Player</AlertDialogTitle>
             <AlertDialogDescription>
-              Remove "{playerToDelete?.name}" from the system? This will reorder all players.
+              Remove "{playerToDelete?.name}" from the system? If they’re on the Challenger court, the next
+              person in the queue will move up.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deletePlayerMutation.mutate(playerToDelete?.id)}
+              onClick={() => deletePlayerMutation.mutate(playerToDelete)}
               className="
                 inline-flex items-center justify-center gap-2 whitespace-nowrap
                 rounded-md text-sm font-medium transition-colors
