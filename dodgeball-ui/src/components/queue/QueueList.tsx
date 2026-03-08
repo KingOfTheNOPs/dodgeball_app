@@ -48,7 +48,7 @@ export default function QueueList({ players, onMoveUp, onMoveDown, onDelete }) {
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: 20 }}
-                    className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-all group"
+                    className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-all"
                   >
                     <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-slate-200 text-slate-600 font-bold text-sm">
                       {actualPosition + 1}
@@ -79,7 +79,7 @@ export default function QueueList({ players, onMoveUp, onMoveDown, onDelete }) {
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1">
                       <Button
                         size="icon"
                         variant="ghost"
